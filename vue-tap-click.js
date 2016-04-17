@@ -31,8 +31,13 @@
                 if(typeof fn !== 'function') {
                     return console.error('The param of directive "v-tap" must be a function!');
                 }
-                self.handler = function(e) { //This directive.handler
+                self.handler = function(e, isLong) { //This directive.handler
                     e.tapObj = self.tapObj;
+                    // 用全局变量记录是否长按 -start
+                    if (isLong) {
+                        e.isLong = true
+                    }
+                    // 用全局变量记录是否长按 -end
                     fn.call(self,e);
                 };
                 if(self.isPC()) {
@@ -42,12 +47,33 @@
                     },false);
                 } else {
                     this.el.addEventListener('touchstart',function(e) {
+                        // 增加self修饰符-start by COoL
+                        if(self.modifiers.self && window.tapDone)
+                            return;
+                        window.tapDone = true;
+                        setTimeout(function(){
+                            window.tapDone = false;
+                        },200);
+                        // 增加self修饰符-end
+                        
+                        // 加入long修饰符实现长按动作-start by COoL
+                        if (self.modifiers.long) {
+                            window.longEnable = true;
+                            window.longTimer = setTimeout(() => {
+                                self.touchend(e,self,fn);
+                            }, 600)
+                        }
+                        // 加入long修饰符实现长按动作-end
 
                         if(self.modifiers.stop)
                             e.stopPropagation();
                         if(self.modifiers.prevent)
                             e.preventDefault();
                         self.touchstart(e,self);
+                    },false);
+                    this.el.addEventListener('touchmove',function(e) {
+                        //e.preventDefault();
+                        window.longEnable = false;
                     },false);
                     this.el.addEventListener('touchend',function(e) {
                         //e.preventDefault();
@@ -58,11 +84,24 @@
             unbind : function() {},
             isTap : function() {
                 var self   = this;
-                if(self.el.disabled){
-                  return false;
+                if(self.el && self.el.disabled){
+                    return 0; // 原为false
                 }
+
                 var tapObj = this.tapObj;
-                return this.time < 150 && Math.abs(tapObj.distanceX) < 2 && Math.abs(tapObj.distanceY) < 2;
+                if (Math.abs(tapObj.distanceX) >= 2 || Math.abs(tapObj.distanceY) >= 2) {
+                    // 手指有移动，作废
+                    return 0;
+                } else if (this.time < 150) {
+                    // 快速点击
+                    return 1;
+                } else if (this.time >= 600) {
+                    // 长按
+                    return 2;
+                } else {
+                    // 时间有误，作废
+                    return 0;
+                }
             },
             isPC : function() {
                 var uaInfo = navigator.userAgent;
@@ -89,8 +128,36 @@
                 tapObj.distanceX = tapObj.pageX - touches.pageX;
                 tapObj.distanceY = tapObj.pageY - touches.pageY;
 
-                if (self.isTap(tapObj))
+                // 加入long修饰符实现长按动作-start by COoL
+                
+                // 清除长按计时
+                clearTimeout(window.longTimer)
+
+                // 获取是否长按或无效
+                var tapType = self.isTap(tapObj);
+                if (tapType === 0) {
+                    // 无效
+                    return;
+                }
+
+                if (tapType === 1) {
+                    // 短击
                     self.handler(e);
+                    return;
+                }
+
+                if (self.modifiers.long && tapType === 2 && window.longEnable) {
+                    // 允许长按且是长按且首次触发且未移动过
+                    window.longEnable = false;
+                    self.handler(e, true)
+                    return;
+                }
+                // 加入long修饰符实现长按动作-end
+                
+                /*
+                if (self.isTap(tapObj)){
+                    self.handler(e);
+                */
             }
         });
     };
